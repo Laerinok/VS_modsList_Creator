@@ -1,0 +1,76 @@
+{
+    "Mods": [
+        {
+            "Name": "Axle in blocks",
+            "Version": "1.20.1-rc.5",
+            "ModId": "axleinblocks",
+            "Side": "both",
+            "Description": "Allows hide axle, gears and transmission inside bricks, dry stone and wooden planks.",
+            "url_mod": "https://mods.vintagestory.at/show/mod/1809",
+            "url_download": "https://moddbcdn.vintagestory.at/axleinblocks_1.20.1-_88af0b580ab742d7e1bb66c39f99dd44.zip?dl=axleinblocks_1.20.1-rc.5.zip"
+        },
+        {
+            "Name": "更好的实体交互",
+            "Version": "1.0.3",
+            "ModId": "betterentityinteraction",
+            "Side": "client",
+            "Description": "允许和实体的交互（包括左键攻击）忽略植物方块（比如草）。",
+            "url_mod": "https://mods.vintagestory.at/show/mod/14868",
+            "url_download": "https://moddbcdn.vintagestory.at/betterentityinteract_10b67736144e1100b2d1e8587b06a573.zip?dl=betterentityinteraction_1.0.3.zip"
+        },
+        {
+            "Name": "Better Fire",
+            "Version": "0.0.3",
+            "ModId": "bf",
+            "Side": "both",
+            "Description": "Делает более реалистичные частицы огня и дыма",
+            "url_mod": "https://mods.vintagestory.at/show/mod/14566",
+            "url_download": "https://moddbcdn.vintagestory.at/BetterFire_v0.0.3_0ce6f8729a2c248791820f22010e5cf3.zip?dl=BetterFire_v0.0.3.zip"
+        },
+        {
+            "Name": "FixToggleSprint",
+            "Version": "1.0.0",
+            "ModId": "fixtogglesprint",
+            "Side": "client",
+            "Description": "修复双击前进键不能切换冲刺的问题",
+            "url_mod": "https://mods.vintagestory.at/show/mod/16093",
+            "url_download": "https://moddbcdn.vintagestory.at/fixtogglesprint_1.0._29c73cfbc524ee6e60a274b0556ac929.zip?dl=fixtogglesprint_1.0.0.zip"
+        },
+        {
+            "Name": "Fauna of the Stone Age: Manidae",
+            "Version": "1.0.12",
+            "ModId": "manidae",
+            "Side": "both",
+            "Description": "A collection of pangolin from the Holocene.",
+            "url_mod": "https://mods.vintagestory.at/show/mod/12337",
+            "url_download": "https://moddbcdn.vintagestory.at/FotSA-Manidae-v1.0.1_408902e24f7d6aa3940a916366417def.zip?dl=FotSA-Manidae-v1.0.12.zip"
+        },
+        {
+            "Name": "MoreRope",
+            "Version": "0.0.1",
+            "ModId": "mr",
+            "Side": "both",
+            "Description": "Добавляет новые рецепты верёвок",
+            "url_mod": "https://mods.vintagestory.at/show/mod/14767",
+            "url_download": "https://moddbcdn.vintagestory.at/MoreRope_v0.0.1_4c1c28600fec6a0c08c728f5c4a90cce.zip?dl=MoreRope_v0.0.1.zip"
+        },
+        {
+            "Name": "QuicklimeInPitkiln",
+            "Version": "1.0.0",
+            "ModId": "quicklimepk",
+            "Side": "both",
+            "Description": "Adds a way to make quicklime in a pitkiln",
+            "url_mod": "https://mods.vintagestory.at/show/mod/5380",
+            "url_download": "https://moddbcdn.vintagestory.at/QuicklimeInPitkilnv1_b460a063c8c20d8d235e3fa2534f81f3.zip?dl=QuicklimeInPitkilnv1.0.0.zip"
+        },
+        {
+            "Name": "StepUp",
+            "Version": "1.2.0",
+            "ModId": "stepup",
+            "Side": "client",
+            "Description": "Doubles players' step height to allow stepping up full blocks",
+            "url_mod": "https://mods.vintagestory.at/show/mod/85",
+            "url_download": "https://moddbcdn.vintagestory.at/StepUp-v1.2.0_42b0862c66738087adeae324bdfabda3.cs?dl=StepUp-v1.2.0.cs"
+        }
+    ]
+}
