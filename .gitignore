@@ -2,6 +2,7 @@
 *wip.py
 *.ini
 *.pdf
+config.ini
 /vintagestory-at-chain.pem
 PyInstaller/build
 PyInstaller/dist
