@@ -5,19 +5,20 @@ Vintage Story - Creation of modlist from the mod folder (modlist.json)
 """
 __author__ = "Laerinok"
 __date__ = "2025-03-20"
-__version__ = "1.0.1"
+__version__ = "1.1.0"
 
 import time
 from pathlib import Path
 import zipfile
 import json
-import pathlib
 import requests
 import re
 import urllib.parse
 import configparser
 import sys
 from rich.progress import Progress
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 
 MOD_API_BASE = "https://mods.vintagestory.at/api/mod/"
@@ -171,74 +172,83 @@ def save_json(data, filename):
         print(f"Unexpected error while saving {filename}: {e}")
 
 
+def process_mod_file(file, mods_data, invalid_files):
+    """Traite un fichier de mod (zip ou cs), ajoute les résultats dans mods_data ou invalid_files"""
+    if file.suffix == '.zip':
+        if is_zip_valid(file):
+            modid, name, version, mod_url_dl, description = get_modinfo_from_zip(file)
+            if modid and name and version:
+                assetid, side, releases = get_api_info(modid)
+                mod_file_onlinepath = get_mainfile_for_version(version, releases)
+                if mod_file_onlinepath:
+                    url_mod = f'{MOD_DB_URL}{assetid}'
+                    mods_data["Mods"].append({
+                        "Name": name,
+                        "Version": version,
+                        "ModId": modid,
+                        "Side": side,
+                        "Description": description,
+                        "url_mod": url_mod,
+                        "url_download": mod_file_onlinepath
+                    })
+                else:
+                    invalid_files.append(
+                        file.name)  # If no link found, add to invalid files
+            else:
+                invalid_files.append(file.name)  # Add file name to invalid files list
+        else:
+            invalid_files.append(
+                file.name)  # Add corrupted file name to invalid files list
+    elif file.suffix == '.cs':
+        version, side, namespace, modid, mod_url_dl, description = get_cs_info(file)
+        if version and side and namespace and modid and mod_url_dl:
+            assetid, side, releases = get_api_info(modid)
+            mod_file_onlinepath = get_mainfile_for_version(version, releases)
+            if mod_file_onlinepath:
+                url_mod = f'{MOD_DB_URL}{assetid}'
+                mods_data["Mods"].append({
+                    "Name": namespace,
+                    "Version": version,
+                    "ModId": modid,
+                    "Side": side,
+                    "Description": description,
+                    "url_mod": url_mod,
+                    "url_download": mod_file_onlinepath
+                })
+            else:
+                invalid_files.append(file.name)  # Add invalid .cs file name
+        else:
+            invalid_files.append(file.name)  # Add invalid .cs file name
+
+
 def list_mods(mods_folder):
-    """Lists the mods in the specified folder and creates a modlist.json file."""
+    """Liste les mods dans le dossier spécifié et crée un fichier modlist.json."""
     mods_data = {"Mods": []}
-    mods_folder = pathlib.Path(mods_folder)
-    invalid_files = []  # List to store invalid or corrupted files
+    invalid_files = []  # Liste des fichiers invalides ou corrompus
 
     mod_files = list(mods_folder.iterdir())
     total_files = len(mod_files)
-    # Using rich.progress to display the progress bar.
     with Progress() as progress:
         task = progress.add_task("[cyan]Scanning mods...", total=total_files)
-        for file in mods_folder.iterdir():
-            if file.suffix == '.zip':
-                if is_zip_valid(file):
-                    modid, name, version, mod_url_dl, description = get_modinfo_from_zip(file)
-                    if modid and name and version:
-                        # Get API info to retrieve version and download link
-                        assetid, side, releases = get_api_info(modid)
-                        mod_file_onlinepath = get_mainfile_for_version(version, releases)
-                        if mod_file_onlinepath:
-                            url_mod = f'{MOD_DB_URL}{assetid}'
-                            mods_data["Mods"].append({
-                                "Name": name,
-                                "Version": version,
-                                "ModId": modid,
-                                "Side": side,
-                                "Description": description,
-                                "url_mod": url_mod,
-                                "url_download": mod_file_onlinepath
-                            })
-                        else:
-                            invalid_files.append(file.name)  # If no link found, add to invalid files
-                    else:
-                        invalid_files.append(file.name)  # Add file name to invalid files list
-                else:
-                    invalid_files.append(file.name)  # Add corrupted file name to invalid files list
-            elif file.suffix == '.cs':
-                version, side, namespace, modid, mod_url_dl, description = get_cs_info(file)
-                if version and side and namespace and modid and mod_url_dl:
-                    assetid, side, releases = get_api_info(modid)
-                    mod_file_onlinepath = get_mainfile_for_version(version, releases)
-                    if mod_file_onlinepath:
-                        url_mod = f'{MOD_DB_URL}{assetid}'
-                        mods_data["Mods"].append({
-                            "Name": namespace,
-                            "Version": version,
-                            "ModId": modid,
-                            "Side": side,
-                            "Description": description,
-                            "url_mod": url_mod,
-                            "url_download": mod_file_onlinepath
-                        })
-                    else:
-                        invalid_files.append(
-                            file.name)  # If no link found, add to invalid files list
-                else:
-                    invalid_files.append(file.name)  # Add invalid .cs file name
-            # Updating the progress bar
-            progress.update(task, advance=1)
 
-    # Sort mods alphabetically by "Name"
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for file in mods_folder.iterdir():
+                futures.append(
+                    executor.submit(process_mod_file, file, mods_data, invalid_files))
+
+            for idx, future in enumerate(as_completed(futures)):
+                future.result()  # Wait for completion and handle exceptions
+                progress.update(task, advance=1)  # Mettre à jour la barre de progression après chaque fichier
+
+    # Trie les mods par "Name"
     mods_data["Mods"].sort(key=lambda mod: mod["ModId"].lower() if mod["ModId"] else "")
 
-    # Save data to modlist.json
+    # Sauvegarde les données dans modlist.json
     filename = 'modlist.json'
     save_json(mods_data, filename)
 
-    # Display invalid or corrupted files
+    # Affiche les fichiers invalides ou corrompus
     if invalid_files:
         print("Invalid or corrupted files:")
         for invalid_file in invalid_files:
