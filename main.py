@@ -18,7 +18,6 @@ import configparser
 import sys
 from rich.progress import Progress
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
 
 
 MOD_API_BASE = "https://mods.vintagestory.at/api/mod/"
@@ -69,7 +68,7 @@ def get_modinfo_from_zip(zip_path):
                 print(f"Warning: No modinfo.json found in {zip_path}")
                 return None, None, None, None, None
             with zip_ref.open('modinfo.json') as modinfo_file:
-                raw_json = modinfo_file.read().decode('utf-8')
+                raw_json = modinfo_file.read().decode('utf-8-sig')
                 fixed_json = fix_json(raw_json)
                 modinfo = json.loads(fixed_json)
                 # Convert all keys to lowercase to ignore case
