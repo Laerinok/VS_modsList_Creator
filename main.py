@@ -4,19 +4,26 @@
 Vintage Story - Creation of modlist from the mod folder (modlist.json)
 """
 __author__ = "Laerinok"
-__date__ = "2025-03-19"
-__version__ = "1.0.0"
+__date__ = "2025-03-20"
+__version__ = "1.1.0"
 
 import time
 from pathlib import Path
 import zipfile
 import json
-import pathlib
 import requests
 import re
 import urllib.parse
 import configparser
 import sys
+from rich.progress import Progress
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+
+MOD_API_BASE = "https://mods.vintagestory.at/api/mod/"
+MOD_DB_URL = "https://mods.vintagestory.at/show/mod/"
+MOD_DOWNLOAD_BASE = "https://moddbcdn.vintagestory.at/"
 
 
 def get_mod_path(config_file="config.ini"):
@@ -55,29 +62,33 @@ def is_zip_valid(zip_path):
 
 def get_modinfo_from_zip(zip_path):
     """Gets modid, name, and version information from modinfo.json in a zip file."""
-    mod_api = f'https://mods.vintagestory.at/api/mod/'
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             # Opens modinfo.json inside the zip file
+            if 'modinfo.json' not in zip_ref.namelist():
+                print(f"Warning: No modinfo.json found in {zip_path}")
+                return None, None, None, None, None
             with zip_ref.open('modinfo.json') as modinfo_file:
                 raw_json = modinfo_file.read().decode('utf-8')
                 fixed_json = fix_json(raw_json)
                 modinfo = json.loads(fixed_json)
                 # Convert all keys to lowercase to ignore case
                 modinfo_lower = {k.lower(): v for k, v in modinfo.items()}
-                mod_url_api = f'{mod_api}{modinfo_lower.get("modid")}'
+                mod_url_api = f'{MOD_API_BASE}{modinfo_lower.get("modid")}'
                 return modinfo_lower.get('modid'), modinfo_lower.get('name'), modinfo_lower.get('version'), mod_url_api, modinfo_lower.get('description')
+    except zipfile.BadZipFile:
+        print(f"Error: {zip_path} is not a valid zip file.")
+    except json.JSONDecodeError:
+        print(f"Error: Failed to parse modinfo.json in {zip_path}")
     except Exception as e:
-        print(f"Error extracting modinfo.json from {zip_path}: {e}")
-        return None, None, None, None
+        print(f"Unexpected error processing {zip_path}: {e}")
+    return None, None, None, None, None
 
 
 def get_cs_info(cs_path):
     """Gets Version, Side, namespace information from a .cs file."""
-    mod_api = f'https://mods.vintagestory.at/api/mod/'
     with open(cs_path, 'r', encoding='utf-8') as cs_file:
         content = cs_file.read()
-
         # Using regex to extract the values
         version_match = re.search(r'Version\s*=\s*"([^"]+)"', content)
         side_match = re.search(r'Side\s*=\s*"([^"]+)"', content)
@@ -89,7 +100,7 @@ def get_cs_info(cs_path):
         description = description_match.group(1) if description_match else None
         namespace = namespace_match.group(1) if namespace_match else None
         modid = namespace.lower().replace(" ", "") if namespace else None
-        mod_url_api = f'{mod_api}{modid}'
+        mod_url_api = f'{MOD_API_BASE}{modid}'
         return version, side, namespace, modid, mod_url_api, description
 
 
@@ -115,8 +126,6 @@ def get_mainfile_for_version(mod_version, api_response):
 
 
 def make_dl_link(mod_file_onlinepath_raw):
-    # Common domain
-    base_domain = "https://moddbcdn.vintagestory.at/"
     # URL parsing
     parsed_url = urllib.parse.urlparse(mod_file_onlinepath_raw)
     # Extracting the "path" (after the domain)
@@ -126,68 +135,55 @@ def make_dl_link(mod_file_onlinepath_raw):
     # Encoding parameters to ensure they are valid in a URL
     encoded_params = urllib.parse.quote(params, safe="=&")
     # Reconstructing the final URL
-    mod_file_onlinepath = f"{base_domain}{file_path}?{encoded_params}"
+    mod_file_onlinepath = f"{MOD_DOWNLOAD_BASE}{file_path}?{encoded_params}"
     return mod_file_onlinepath
 
 
 def get_api_info(modid):
     """Gets, via the API, the assetid and download link for the file corresponding to the mod version."""
-    url_api = "https://mods.vintagestory.at/api/mod/"
-    url_api_mod = f"{url_api}{modid}"
+    url_api_mod = f"{MOD_API_BASE}{modid}"
     try:
-        response = requests.get(url_api_mod)
+        response = requests.get(url_api_mod, timeout=5)
         response.raise_for_status()
         data = response.json()
         mod_asset_id = data['mod']['assetid']
         releases = data['mod']['releases']
         side = data['mod']['side']
         return mod_asset_id, side, releases
-    except requests.RequestException:
-        print(f"Error fetching API info for {modid}")
-        return "", ""
+    except requests.exceptions.Timeout:
+        print(f"Timeout when fetching API info for {modid}")
+    except requests.exceptions.HTTPError as err:
+        print(f"HTTP error when fetching API info for {modid}: {err}")
+    except requests.RequestException as err:
+        print(f"Error fetching API info for {modid}: {err}")
+    except KeyError:
+        print(f"Unexpected API response format for {modid}")
+        return None, None, None
 
 
-def list_mods(mods_folder):
-    """Lists the mods in the specified folder and creates a modlist.json file."""
-    url_moddb = f'https://mods.vintagestory.at/show/mod/'
-    mods_data = {"Mods": []}
-    mods_folder = pathlib.Path(mods_folder)
-    invalid_files = []  # List to store invalid or corrupted files
+def save_json(data, filename):
+    try:
+        with open(filename, 'w', encoding='utf-8') as json_file:
+            json.dump(data, json_file, indent=4, ensure_ascii=False)
+        print(f"{filename} has been created successfully.")
+    except PermissionError:
+        print(f"Error: No write permission for {filename}. Try running as administrator.")
+    except Exception as e:
+        print(f"Unexpected error while saving {filename}: {e}")
 
-    for file in mods_folder.iterdir():
-        if file.suffix == '.zip':
-            if is_zip_valid(file):
-                modid, name, version, mod_url_dl, description = get_modinfo_from_zip(file)
-                if modid and name and version:
-                    # Get API info to retrieve version and download link
-                    assetid, side, releases = get_api_info(modid)
-                    mod_file_onlinepath = get_mainfile_for_version(version, releases)
-                    if mod_file_onlinepath:
-                        url_mod = f'{url_moddb}{assetid}'
-                        mods_data["Mods"].append({
-                            "Name": name,
-                            "Version": version,
-                            "ModId": modid,
-                            "Side": side,
-                            "Description": description,
-                            "url_mod": url_mod,
-                            "url_download": mod_file_onlinepath
-                        })
-                    else:
-                        invalid_files.append(file.name)  # If no link found, add to invalid files
-                else:
-                    invalid_files.append(file.name)  # Add file name to invalid files list
-            else:
-                invalid_files.append(file.name)  # Add corrupted file name to invalid files list
-        elif file.suffix == '.cs':
-            version, side, namespace, modid, mod_url_dl, description = get_cs_info(file)
-            if version and side and namespace and modid and mod_url_dl:
+
+def process_mod_file(file, mods_data, invalid_files):
+    """Traite un fichier de mod (zip ou cs), ajoute les résultats dans mods_data ou invalid_files"""
+    if file.suffix == '.zip':
+        if is_zip_valid(file):
+            modid, name, version, mod_url_dl, description = get_modinfo_from_zip(file)
+            if modid and name and version:
                 assetid, side, releases = get_api_info(modid)
                 mod_file_onlinepath = get_mainfile_for_version(version, releases)
                 if mod_file_onlinepath:
-                    url_mod = f'{url_moddb}{assetid}'
+                    url_mod = f'{MOD_DB_URL}{assetid}'
                     mods_data["Mods"].append({
-                        "Name": namespace,
+                        "Name": name,
                         "Version": version,
                         "ModId": modid,
                         "Side": side,
@@ -197,18 +193,62 @@ def list_mods(mods_folder):
                     })
                 else:
                     invalid_files.append(
-                        file.name)  # If no link found, add to invalid files list
+                        file.name)  # If no link found, add to invalid files
+            else:
+                invalid_files.append(file.name)  # Add file name to invalid files list
+        else:
+            invalid_files.append(
+                file.name)  # Add corrupted file name to invalid files list
+    elif file.suffix == '.cs':
+        version, side, namespace, modid, mod_url_dl, description = get_cs_info(file)
+        if version and side and namespace and modid and mod_url_dl:
+            assetid, side, releases = get_api_info(modid)
+            mod_file_onlinepath = get_mainfile_for_version(version, releases)
+            if mod_file_onlinepath:
+                url_mod = f'{MOD_DB_URL}{assetid}'
+                mods_data["Mods"].append({
+                    "Name": namespace,
+                    "Version": version,
+                    "ModId": modid,
+                    "Side": side,
+                    "Description": description,
+                    "url_mod": url_mod,
+                    "url_download": mod_file_onlinepath
+                })
             else:
                 invalid_files.append(file.name)  # Add invalid .cs file name
+        else:
+            invalid_files.append(file.name)  # Add invalid .cs file name
 
-    # Sort mods alphabetically by "Name"
-    mods_data["Mods"].sort(key=lambda mod: mod["ModId"].lower())
 
-    # Save data to modlist.json
-    with open('modlist.json', 'w', encoding='utf-8') as json_file:
-        json.dump(mods_data, json_file, indent=4, ensure_ascii=False)
+def list_mods(mods_folder):
+    """Liste les mods dans le dossier spécifié et crée un fichier modlist.json."""
+    mods_data = {"Mods": []}
+    invalid_files = []  # Liste des fichiers invalides ou corrompus
 
-    # Display invalid or corrupted files
+    mod_files = list(mods_folder.iterdir())
+    total_files = len(mod_files)
+    with Progress() as progress:
+        task = progress.add_task("[cyan]Scanning mods...", total=total_files)
+
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for file in mods_folder.iterdir():
+                futures.append(
+                    executor.submit(process_mod_file, file, mods_data, invalid_files))
+
+            for idx, future in enumerate(as_completed(futures)):
+                future.result()  # Wait for completion and handle exceptions
+                progress.update(task, advance=1)  # Mettre à jour la barre de progression après chaque fichier
+
+    # Trie les mods par "Name"
+    mods_data["Mods"].sort(key=lambda mod: mod["ModId"].lower() if mod["ModId"] else "")
+
+    # Sauvegarde les données dans modlist.json
+    filename = 'modlist.json'
+    save_json(mods_data, filename)
+
+    # Affiche les fichiers invalides ou corrompus
     if invalid_files:
         print("Invalid or corrupted files:")
         for invalid_file in invalid_files:
@@ -217,8 +257,17 @@ def list_mods(mods_folder):
         print("No invalid or corrupted files.")
 
 
-# Get the path from config.ini
-mod_path = get_mod_path()
+if __name__ == "__main__":
+    mod_path = get_mod_path()
 
-# Run the function with the retrieved path
-list_mods(mod_path)
+    if not mod_path.exists():
+        print(f"Error: The directory '{mod_path}' does not exist.")
+        sys.exit(1)
+    elif not mod_path.is_dir():
+        print(f"Error: '{mod_path}' is not a directory.")
+        sys.exit(1)
+
+    print(f"Scanning mods in: {mod_path}")
+    list_mods(mod_path)
+    print("Done. The modlist.json file has been generated.")
+    time.sleep(2)
