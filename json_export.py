@@ -43,10 +43,43 @@ def get_mod_path(config_file="config.ini"):
     return Path(config["ModPath"]["path"]).resolve()
 
 
+def sanitize_json_data(data):
+    """Recursively replace None values with empty strings."""
+    if isinstance(data, dict):
+        return {k: sanitize_json_data(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_json_data(item) for item in data]
+    elif data is None:
+        return ""
+    return data
+
+
 def fix_json(json_data):
-    # Fix 1: Remove final commas
-    json_data = re.sub(r",\s*([}\]])", r"\1", json_data)
-    return json_data
+    """Fix the JSON string by removing comments, trailing commas, and ignoring the 'website' key."""
+
+    # Remove single-line comments (lines starting with //)
+    json_data = re.sub(r'^\s*//[^\n]*$', '', json_data, flags=re.MULTILINE)
+
+    # Remove trailing commas before closing braces/brackets
+    json_data = re.sub(r',\s*([}\]])', r'\1', json_data)
+
+    # Try to load the JSON string into a Python dictionary
+    try:
+        data = json.loads(json_data)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON: {e}")
+        return "Error: Invalid JSON data"
+
+    # Sanitize the data: replace None with empty strings
+    data = sanitize_json_data(data)
+
+    # Remove the 'website' key if it exists
+    if "website" in data:
+        del data["website"]
+
+    # Convert the dictionary back into a formatted JSON string
+    json_data_fixed = json.dumps(data, indent=2)
+    return json_data_fixed
 
 
 def is_zip_valid(zip_path):
